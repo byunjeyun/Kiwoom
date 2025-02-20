@@ -102,6 +102,34 @@ class Kiwoom(KiwoomAPI):  # KiwoomAPI 상속
             self.stock_data[code] = {"MA5": ma5, "MA20": ma20, "BB_Upper": bb_upper, "BB_Lower": bb_lower}
             self.tr_event_loop.quit()
 
+    def send_order(self, order_type, stock_code, qty, price, hoga_type="03"):
+        """ 주식 매수/매도 주문을 처리하는 메소드 """
+        """
+        order_type: 'buy' (매수) / 'sell' (매도)
+        stock_code: 종목 코드
+        qty: 거래 수량
+        price: 거래 가격
+        hoga_type: 주문 방식 (시장가: 03, 지정가: 00)
+        """
+        # 주문 타입 매핑
+        order_type_dict = {"buy": 1, "sell": 2}
+
+        # 주문 실행을 위한 파라미터 설정
+        account_number = "80972740"  # 실제 계좌번호로 바꿔야 해
+        screen_number = "0000"  # 화면 번호 설정
+
+        # SendOrder 호출 (주문 전송)
+        order_result = self.dynamicCall(
+            "SendOrder(QString, QString, QString, int, QString, int, int, QString, QString)",
+            ["매매", account_number, screen_number, order_type_dict[order_type], stock_code, qty, price, hoga_type, "00"]
+        )
+
+        # 주문 결과 출력
+        if order_result == 0:
+            print(f"{order_type.capitalize()} 주문 전송 성공: 종목코드: {stock_code}, 수량: {qty}, 가격: {price}")
+        else:
+            print(f"{order_type.capitalize()} 주문 전송 실패: 에러코드 {order_result}")
+
     def run(self):
         """ 전체 실행 """
         self.comm_connect()  # 로그인 요청
@@ -113,6 +141,23 @@ class Kiwoom(KiwoomAPI):  # KiwoomAPI 상속
             self.request_stock_data(code)
             self.tr_event_loop.exec_()
             time.sleep(0.3)  # API 제한 대응
+
+            # 매매 로직 추가 (MA5, MA20, 볼린저 밴드 기반 매수/매도)
+            stock = self.stock_data.get(code)
+            if stock:
+                ma5 = stock["MA5"]
+                ma20 = stock["MA20"]
+                bb_upper = stock["BB_Upper"]
+                bb_lower = stock["BB_Lower"]
+                current_price = int(self.dynamicCall("GetCommData(QString, QString, int, QString)", "opt10081", "주식일봉조회", 0, "현재가").strip())
+
+                if ma5 and ma20:
+                    if current_price < bb_lower:  # 매수 조건: 가격이 볼린저 밴드 하한선 아래일 때
+                        print(f"[매수 추천] {code} - 현재가: {current_price}, 매수 조건: 가격이 BB 하한선 아래")
+                        self.send_order("buy", code, 1, current_price)  # 예시로 1주 매수
+                    elif current_price > bb_upper:  # 매도 조건: 가격이 볼린저 밴드 상한선 위일 때
+                        print(f"[매도 추천] {code} - 현재가: {current_price}, 매도 조건: 가격이 BB 상한선 위")
+                        self.send_order("sell", code, 1, current_price)  # 예시로 1주 매도
 
 if __name__ == "__main__":
     app = QApplication([])  # QApplication 인스턴스 생성
